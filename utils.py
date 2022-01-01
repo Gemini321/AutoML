@@ -18,7 +18,7 @@ def indexes_to_actions(actions, batch_size, total_actions):
             index_eos = hid_units.index('EOS')
             hid_units = hid_units[:index_eos + 1]
         except ValueError:
-            hid_units = hid_units[:-1] + ['EOS']
+            hid_units = hid_units + ['EOS']
             index_eos = len(hid_units)
     
         batch_hid_units.append(hid_units)

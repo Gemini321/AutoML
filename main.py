@@ -23,11 +23,11 @@ if __name__ == "__main__":
     
     # parameter settings
     args.possible_hidden_units += ['EOS'] # each hidden units end with 'EOS'
-    total_actions = args.possible_hidden_units + args.possible_act_functions
-    n_outputs = len(args.possible_hidden_units) + len(args.possible_act_functions) #of the PolicyNet
+    total_actions = args.possible_hidden_units + args.possible_act_functions # total_actions = [1,2,4,8,16,32, 'EOS'] + ['Sigmoid', 'Tanh', 'ReLU', 'LeakyReLU']
+    n_outputs = len(args.possible_hidden_units) + len(args.possible_act_functions) # output dimension of the PolicyNet
     
     # setup policy network
-    policy = PolicyNet(args.batch, n_outputs, args.max_layer)
+    policy = PolicyNet(args.batch, len(args.possible_hidden_units), len(args.possible_act_functions), args.max_layer)
     
     # train
     policy = training(policy, args.batch, total_actions, args.verbose, args.num_episodes)

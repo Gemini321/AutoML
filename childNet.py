@@ -1,5 +1,6 @@
 import torch
 from torch.autograd import Variable
+from torch.cuda import is_available
 from torch.nn.parameter import Parameter
 import torch.nn as nn
 import torch.nn.functional as F
@@ -40,10 +41,9 @@ def create_dataset(p_val=0.1, p_test=0.2):
     return X_tr, y_tr, X_val, y_val
 
 class Net(nn.Module):
-
+    # construct a new NN with given layers
     def __init__(self, layers, num_features, num_classes, layer_limit): 
         super(Net, self).__init__()
-      
         #if hid_units is None or len(hid_units) == 0:
         #    raise Exception('You must specify at least one action!')
 
@@ -89,6 +89,7 @@ class ChildNet():
     def __init__(self, layer_limit):
         self.criterion = nn.CrossEntropyLoss()
 
+        # create dataset
         X_tr, y_tr, X_val, y_val = create_dataset()
         self.X_tr = X_tr.astype('float32')
         self.y_tr = y_tr.astype('float32')

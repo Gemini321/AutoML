@@ -8,14 +8,16 @@ import torch.nn.functional as F
 class PolicyNet(nn.Module):
     """Policy network, i.e., RNN controller that generates the different childNet architectures."""
 
-    def __init__(self, batch_size, n_outputs, layer_limit):
+    def __init__(self, batch_size, possible_hidden_units, possible_activation_functions, layer_limit):
         super(PolicyNet, self).__init__()
         
         # parameters
         self.layer_limit = layer_limit
         self.gamma = 1.0
         self.n_hidden = 24
-        self.n_outputs = n_outputs
+        self.possible_hidden_units = possible_hidden_units
+        self.possible_activation_functions = possible_activation_functions
+        self.n_outputs = possible_hidden_units + possible_activation_functions
         self.learning_rate = 1e-2
         self.batch_size = batch_size
         
@@ -37,7 +39,7 @@ class PolicyNet(nn.Module):
         '''Stochasticity of the policy, picks a random action based on the probabilities computed by the last softmax layer. '''
         if training:
             random_array = np.random.rand(self.batch_size).reshape(self.batch_size,1)
-            return (np.cumsum(output.detach().numpy(), axis=1) > random_array).argmax(axis=1) # sample action
+            return (np.cumsum(output.detach().numpy(), axis=1) > random_array).argmax(axis=1) # sample action(return index of action)
         else: #not stochastic
             return (output.detach().numpy()).argmax(axis=1)
                 
@@ -56,23 +58,32 @@ class PolicyNet(nn.Module):
         c_t = torch.zeros(self.batch_size, self.n_hidden, dtype=torch.float)
         action = torch.zeros(self.batch_size, self.n_outputs, dtype=torch.float)
         
-        # for 
+        # for each layer of DNN(action chosen in units numbers and activation functions randomly?)
         while counter_nb_layers<self.layer_limit: 
 
             h_t, c_t = self.lstm(action, (h_t, c_t))
                         
+            # when layer i is even, set the possibilities of activation functions to zero
+            # when layer i is odd, set the possibilities of full connected layers to zero
             output = F.softmax(self.linear(h_t))
+            if i % 2 == 0:
+                output[:, self.possible_hidden_units:] = 0
+            else:
+                output[:, :self.possible_hidden_units] = 0
+            output = output / output.sum(dim=1).unsqueeze(dim=1)
             counter_nb_layers += 1
             action = self.sample_action(output, training)
 
+            # collect prosibilities of each action and chosen action
             outputs += [output]
             prob.append(output[np.arange(self.batch_size),action])
             actions[:, i] = action
             action = torch.tensor(self.one_hot(action, self.n_outputs))            
             i += 1
             
+        # prossibilities of actions of each batch, with size (batch_size, layers)
         prob = torch.stack(prob, 1)
-        outputs = torch.stack(outputs, 1).squeeze(2)
+        outputs = torch.stack(outputs, 1).squeeze(2) # confused: outputs never return?
         
         return prob, actions
 
