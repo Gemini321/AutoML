@@ -4,7 +4,7 @@ Deep Reinforcement Learning for Efficient Neural Architecture Search (ENAS) in P
 How to run the pipeline:
 
 1) Clone the whole repository
-```git clone https://github.com/RualPerez/AutoML.git```
+```git clone https://github.com/Gemini321/AutoML.git```
 
 2) Create virtualenv
 ```virtualenv -p /usr/bin/python3.7 virtualenv/AutoML```

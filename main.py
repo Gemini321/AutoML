@@ -1,5 +1,5 @@
 from policy import PolicyNet
-from training import training 
+from training import Trainer 
 import warnings
 warnings.filterwarnings("ignore")
 import argparse
@@ -9,9 +9,9 @@ if __name__ == "__main__":
         
     # input parameters
     parser = argparse.ArgumentParser(description='Documentation in the following link: https://github.com/RualPerez/AutoML', formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('--batch', help='Batch size of the policy (int)', nargs='?', const=1, type=int, default=15)
+    parser.add_argument('--batch', help='Batch size of the policy (int)', nargs='?', const=1, type=int, default=1)
     parser.add_argument('--max_layer', help='Maximum nb layers of the childNet (int)', nargs='?', const=1, type=int, default=6)
-    parser.add_argument('--possible_hidden_units', default=[1,2,4,8,16,32], nargs='*',
+    parser.add_argument('--possible_hidden_units', default=[1,8,32], nargs='*',  # not [1,2,4,8,16,32]
                         type=int, help='Possible hidden units of the childnet (list of int)')
     parser.add_argument('--possible_act_functions', default=['Tanh', 'ReLU'], nargs='*', # not ['Sigmoid', 'Tanh', 'ReLU', 'LeakyReLU']
                         type=int, help='Possible activation funcs of the childnet (list of str)')
@@ -29,10 +29,11 @@ if __name__ == "__main__":
     n_outputs = len(args.possible_hidden_units) + len(args.possible_act_functions) # output dimension of the PolicyNet
     
     # setup policy network
-    policy = PolicyNet(args.batch, len(args.possible_hidden_units), len(args.possible_act_functions), args.max_layer)
+    policy = PolicyNet(len(args.possible_hidden_units), len(args.possible_act_functions), args.max_layer)
     
     # train
-    policy = training(policy, args.batch, total_actions, args.shared_episodes, args.verbose, args.num_episodes)
+    trainer = Trainer(policy, args.batch, total_actions, args.shared_episodes, args.verbose, args.num_episodes)
+    policy = trainer.training()
     
     # save model
     torch.save(policy.state_dict(), 'policy.pt')

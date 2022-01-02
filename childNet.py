@@ -50,7 +50,6 @@ class Net(nn.Module):
         if max_layers < layer_limit:
             raise Exception('Maximum layers that ChildNet accepts is '.format(max_layers))
 
-        ###############################################################
         # initialize class variables
         self.num_features = num_features
         self.num_classes = num_classes
@@ -76,8 +75,6 @@ class Net(nn.Module):
         
         for act in activations_layers:
             self.activations_layers[act] = activation_functions[act]
-        
-        ################################################################
         
         self._hid_layers = nn.ModuleList([self.hid_layers[in_dim][out_dim]
                                                           for in_dim in hid_layers
@@ -156,10 +153,9 @@ class ChildNet():
         train_losses = []
         val_accuracies = []
         max_val_acc = 0
-        patience = 10
+        patience = 5
         val_acc = None
         net = self.net
-        net.train()
 
         # get training input and expected output as torch Variables and make sure type is correct
         tr_input = Variable(torch.from_numpy(self.X_tr), requires_grad=False)
@@ -184,7 +180,6 @@ class ChildNet():
             
             # compute gradients given loss
             tr_loss.backward()
-            #print(net.l_1.weight.grad)
             # update the parameters given the computed gradients
             net.optimizer.step()
             
@@ -202,12 +197,11 @@ class ChildNet():
             else:
                 max_val_acc = val_acc
                 patient_count = 0
-
+        #print(val_accuracies)
         return val_acc
 
     def evaluate(self, layers, val_input, val_targets):
         net = self.net
-        net.eval()
 
         # predict with validation input
         val_output = net(val_input, layers)
