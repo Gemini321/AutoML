@@ -4,17 +4,20 @@ from utils import fill_tensor, indexes_to_actions
 from torch.autograd import Variable
 import numpy as np
 
-def training(policy, batch_size, total_actions, verbose = False, num_episodes = 500):
+def training(policy, batch_size, total_actions, train_shared_epochs=None, verbose=False, num_episodes=500):
     ''' Optimization/training loop of the policy net. Returns the trained policy. '''
     
     # training settings
     decay = 0.9
-    val_freq = 1
+    val_freq = 5
     training = True
     
     # childNet
-    cn = ChildNet(policy.layer_limit)
-    nb_epochs = 1000
+    cn = ChildNet(total_actions, policy.layer_limit)
+    if train_shared_epochs is not None:
+        nb_epochs = train_shared_epochs
+    else:
+        nb_epochs = 100
     
     # train policy network
     training_rewards, val_rewards, losses = [], [], []
@@ -23,11 +26,11 @@ def training(policy, batch_size, total_actions, verbose = False, num_episodes = 
     # start training for num_episodes episodes
     print('start training')
     for i in range(num_episodes):
-        if i%100 == 0: print('Epoch {}'.format(i))
+        if i%1 == 0: print('Epoch {}:'.format(i))
         rollout, batch_r, batch_a_probs = [], [], []
-        #forward pass(sampling) -> why no gradient?
-        with torch.no_grad():
-            prob, actions = policy(training)
+        #forward pass(sampling) -> why no gradient? ----> **************************************************************************
+        #with torch.no_grad():
+        prob, actions = policy(training)
         batch_hid_units, batch_index_eos = indexes_to_actions(actions, batch_size, total_actions)
         
         #compute individually the rewards
@@ -36,10 +39,7 @@ def training(policy, batch_size, total_actions, verbose = False, num_episodes = 
             if verbose:
                 print(batch_hid_units[j])
             # train child network and compute reward
-            r = cn.compute_reward(batch_hid_units[j], nb_epochs)**3
-            # if batch_hid_units[j]==['EOS']:
-            #     r -= -1
-            #     print("Reward of ['EOS']", r)
+            r = cn.compute_reward(batch_hid_units[j], nb_epochs, is_train=True)
             a_probs = prob[j, :batch_index_eos[j] + 1]
 
             batch_r += [r]
@@ -71,6 +71,7 @@ def training(policy, batch_size, total_actions, verbose = False, num_episodes = 
         # print training
         if verbose and (i+1) % val_freq == 0:
             print('{:4d}. mean training reward: {:6.2f}, mean loss: {:7.4f}\n'.format(i+1, np.mean(training_rewards[-val_freq:]), np.mean(losses[-val_freq:])))
+            print('{:4d}. max training reward: {:6.2f}, min loss: {:7.4f}\n'.format(i+1, np.max(training_rewards[-val_freq:]), np.min(losses[-val_freq:])))
 
     print('done training')  
  
