@@ -109,13 +109,6 @@ class Net(nn.Module):
         for param in self.parameters():
             param.data.uniform_(-init_range, init_range)
 
-    
-def accuracy(ys, ts):
-    # making a one-hot encoded vector of correct (1) and incorrect (0) predictions
-    correct_prediction = torch.eq(ts.long(), torch.max(ys, 1)[1])
-    # averaging the one-hot encoded vector
-    return torch.mean(correct_prediction.float())
-
 class ChildNet():
 
     def __init__(self, total_actions, layer_limit):

@@ -3,6 +3,7 @@ import torch
 from torch.nn.modules import loss
 from childNet import ChildNet
 from utils import fill_tensor, indexes_to_actions
+from memory import RelayMemory
 from torch.autograd import Variable
 import numpy as np
 
@@ -14,29 +15,33 @@ class Trainer(object):
         self.train_shared_epochs = train_shared_epochs
         self.verbose = verbose
         self.num_episodes = num_episodes
-        self.train_shared_epochs = 5
+        self.train_shared_epochs = 2 # 5
         self.train_shared_NN_epochs = 100
-        self.train_shared_batch_size = 5
-        self.train_controller_epochs = 10
+        self.train_shared_batch_size = 2 # 5
+        self.train_controller_epochs = 2 # 5
+        self.pre_train_epochs = 3 # 10
         self.decay = 0.9
         self.val_freq = 1
 
         self.policy = policy
         self.shared = ChildNet(total_actions, policy.layer_limit)
+        self.memory = RelayMemory(policy.layer_limit)
 
     def training(self):
         ''' Optimization/training loop of the policy net. Returns the trained policy. '''
         
-        # train policy network
+        # pre_train shared network
         training_rewards, val_rewards, losses = [], [], []
         baseline = torch.zeros(15, dtype=torch.float)
+        print('start pre-training')
+        self.train_shared(pre_train=True)
         
         # start training for num_episodes episodes
         print('start training')
         for i in range(self.num_episodes):
             print('Epoch {}:'.format(i))
             
-            self.train_shared()
+            self.train_shared(pre_train=False)
 
             baseline, training_rewards, losses = self.train_controller(baseline, training_rewards, losses)
             
@@ -62,11 +67,20 @@ class Trainer(object):
 
         for epochs in range(self.train_controller_epochs):
             print('{:4d}th controller training:'.format(epochs))
-            batch_r, batch_a_probs = [], []
-            prob, actions = self.policy(self.batch_size, training=True)
-            batch_hid_units, batch_index_eos = indexes_to_actions(actions, self.batch_size, self.total_actions)
 
-            #compute individually the rewards
+            # sample layers and rewards from relay memory
+            layers, rewards = self.memory.sample(self.batch_size)
+            
+            # train online critic
+            self.policy.train_critic(layers, rewards, self.batch_size)
+
+            # train online actor
+            self.policy.train_actor()
+
+            #compute individually the rewards(only for retriving learning curve, not for training)
+            batch_r, batch_a_probs = [], []
+            prob, actions = self.policy.sample_actions(self.batch_size, training=True)
+            batch_hid_units, batch_index_eos = indexes_to_actions(actions, self.batch_size, self.total_actions)
             for j in range(self.batch_size):
                 # policy gradient update 
                 if self.verbose:
@@ -81,43 +95,32 @@ class Trainer(object):
                 batch_r += [r]
                 batch_a_probs += [a_probs.view(1, -1)]
 
-            #rearrange the action probabilities
-            a_probs = []
-            for b in range(self.batch_size):
-                a_probs.append(fill_tensor(batch_a_probs[b], self.policy.n_outputs, ones=True))
-            a_probs = torch.stack(a_probs,0)
-
-            #convert to pytorch tensors --> use get_variable from utils if training in GPU
-            batch_a_probs = Variable(a_probs, requires_grad=True)
-            batch_r = Variable(torch.tensor(batch_r), requires_grad=True)
-            
-            # classic traininng steps
-            loss = self.policy.loss(self.batch_size, batch_a_probs, batch_r, torch.mean(baseline))
-            self.policy.optimizer.zero_grad()  
-            loss.backward()
-            self.policy.optimizer.step()
-
             # actualize baseline
+            batch_r = torch.Tensor(batch_r)
             baseline = torch.cat((baseline[1:]*self.decay, torch.tensor([torch.mean(batch_r)*(1-self.decay)], dtype=torch.float)))
             
             # bookkeeping
             training_rewards.append(torch.mean(batch_r).detach().numpy())
-            losses.append(loss.item())
+            losses.append(-torch.mean(batch_r).detach().numpy())
 
+        # synchronize target networks and online networks
+        self.policy.sync_actor()
+        self.policy.sync_critic()
         return baseline, training_rewards, losses
 
-    def train_shared(self):
+    def train_shared(self, pre_train=False):
         cn = self.shared
         cn.net.train()
         self.policy.eval()
+        total_epochs = self.pre_train_epochs if pre_train else self.train_shared_epochs
 
-        for epochs in range(self.train_shared_epochs):
+        for epochs in range(total_epochs):
             print('{:4d}th shared training:'.format(epochs))
             batch_r = []
             batch_a_probs =[]
 
             with torch.no_grad():
-                prob, actions = self.policy(self.train_shared_batch_size, training=True)
+                prob, actions = self.policy.sample_actions(self.train_shared_batch_size, training=True)
             batch_hid_units, batch_index_eos = indexes_to_actions(actions, self.train_shared_batch_size, self.total_actions)
 
             #compute individually the rewards
@@ -131,3 +134,7 @@ class Trainer(object):
 
                 batch_r += [r]
                 batch_a_probs += [a_probs.view(1, -1)]
+
+                if pre_train == False:
+                    self.memory.push(actions[j], r)
+
