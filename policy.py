@@ -40,9 +40,13 @@ class PolicyNet(nn.Module):
         '''Stochasticity of the policy, picks a random action based on the probabilities computed by the last softmax layer. '''
         if training:
             random_array = np.random.rand(batch_size).reshape(batch_size,1)
-            return (np.cumsum(output.detach().numpy(), axis=1) > random_array).argmax(axis=1) # sample action(return index of action)
+            actions = (np.cumsum(output.detach().numpy(), axis=1) > random_array).argmax(axis=1) # sample action(return index of action)
         else: #not stochastic
-            return (output.detach().numpy()).argmax(axis=1)
+            actions = (output.detach().numpy()).argmax(axis=1)
+        
+        for i in range(1, len(actions)):
+            actions[i] = actions[i] if actions[i - 1] != 0 else 0 # if previous action is 'EOS', current action must be 'EOS'
+        return actions
                 
     def forward(self, batch_size, training):
         ''' Forward pass. Generates different childNet architectures (nb of architectures = batch_size). '''
@@ -99,13 +103,14 @@ class PolicyNet(nn.Module):
         return torch.mean(torch.mul(sum_over_T, subs_baseline)) - torch.sum(torch.mul (torch.tensor(0.01) * action_probabilities, torch.log(action_probabilities.view(batch_size, -1))))
 
 class Critic(nn.Module):
-    def __init__(self, layer_limit, n_hidden=24):
+    def __init__(self, num_max_layers, num_possible_actions, n_hidden=24):
         super(Critic, self).__init__()
         self.learning_rate = 0.01
-        self.layer_limit = layer_limit
+        self.num_possible_actions = num_possible_actions
+        self.num_max_layers = num_max_layers
         
-        self.encoder = nn.Linear(layer_limit, n_hidden)
-        self.linear_1 = nn.Linear(layer_limit * n_hidden, n_hidden)
+        self.encoder = nn.Linear(num_possible_actions, n_hidden)
+        self.linear_1 = nn.Linear(num_max_layers * n_hidden, n_hidden)
         self.linear_2 = nn.Linear(n_hidden, n_hidden)
         self.linear_3 = nn.Linear(n_hidden, 1)
         self.loss_fn = nn.MSELoss(size_average=True, reduce=True)
@@ -117,7 +122,7 @@ class Critic(nn.Module):
 
         for i in range(batch_size):
             layer = layers[i]
-            input = torch.from_numpy(one_hot(layer, self.layer_limit))
+            input = torch.from_numpy(one_hot(layer, self.num_possible_actions))
 
             h_1 = F.sigmoid(self.encoder(input)).reshape(1, -1)
             h_2 = F.leaky_relu(self.linear_1(h_1))
@@ -132,11 +137,13 @@ class Critic(nn.Module):
         return self.loss_fn(y1, y2)
 
 
-class Policy(object):
+class Policy(nn.Module):
     def __init__(self, possible_hidden_units, possible_activation_functions, layer_limit):
+        super(Policy, self).__init__()
         # policy parameters
         self.possible_hidden_units = possible_hidden_units
         self.possible_activation_functions = possible_activation_functions
+        self.possible_actions = possible_hidden_units + possible_activation_functions
         self.layer_limit = layer_limit
         self.train_critic_batch = 15
         self.train_critic_epochs = 10
@@ -148,7 +155,7 @@ class Policy(object):
         # networks
         self.actor_online = PolicyNet(possible_hidden_units, possible_activation_functions, layer_limit)
         self.actor_target = copy.deepcopy(self.actor_online)
-        self.critic_online = Critic(layer_limit)
+        self.critic_online = Critic( self.layer_limit, self.possible_actions)
         self.critic_target = copy.deepcopy(self.critic_online)
 
     def train_critic(self, layers, rewards, batch_size):
@@ -168,7 +175,7 @@ class Policy(object):
         y = Variable(y, requires_grad=False)
 
         # compute online critic loss
-        loss = self.loss_fn(r_online, y)
+        loss = self.critic_online.loss_fn(r_online, y)
 
         # back propagating
         self.critic_online.optimizer.zero_grad()

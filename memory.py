@@ -6,8 +6,8 @@ class RelayMemory(object):
         self.__pos = 0
         self.__size = 0
 
-        self.__layers = np.zeros((self.__capacity, layer_limit), dtype=np.int)
-        self.__reward = np.zeros((self.__capacity, 1), dtype=np.float)
+        self.__layers = np.zeros((self.__capacity, layer_limit), dtype=np.int32)
+        self.__reward = np.zeros((self.__capacity, 1), dtype=np.float32)
 
     def push(self, layer, reward):
         '''Push one record into relay memory. Records are stored in a cyclic queue'''

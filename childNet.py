@@ -43,21 +43,20 @@ def create_dataset(p_val=0.1, p_test=0.2):
 
 class Net(nn.Module):
     # construct a new NN with given layers
-    def __init__(self, num_features, num_classes, total_actions, layer_limit): 
+    def __init__(self, num_features, num_classes, possible_hidden_units, possible_act_functions, layer_limit): 
         super(Net, self).__init__()
 
-        max_layers = 7
-        if max_layers < layer_limit:
-            raise Exception('Maximum layers that ChildNet accepts is '.format(max_layers))
+        # max_layers = layer_limit
+        # if max_layers < layer_limit:
+        #     raise Exception('Maximum layers that ChildNet accepts is {}'.format(max_layers))
 
         # initialize class variables
         self.num_features = num_features
         self.num_classes = num_classes
 
         # find hidden layers
-        index_eos = total_actions.index('EOS')
-        hid_layers = total_actions[:index_eos]
-        activations_layers = total_actions[index_eos + 1:]
+        hid_layers = possible_hidden_units[1:]
+        activations_layers = possible_act_functions
         if self.num_features not in hid_layers:
             hid_layers.append(self.num_features)
         if self.num_classes not in hid_layers:
@@ -111,7 +110,7 @@ class Net(nn.Module):
 
 class ChildNet():
 
-    def __init__(self, total_actions, layer_limit):
+    def __init__(self, possible_hidden_units, possible_act_functions, layer_limit):
         self.criterion = nn.CrossEntropyLoss()
 
         # create dataset
@@ -126,7 +125,7 @@ class ChildNet():
         self.layer_limit = layer_limit
 
         # create shared NN
-        self.net = Net(self.num_features, self.num_classes, total_actions, self.layer_limit)
+        self.net = Net(self.num_features, self.num_classes, possible_hidden_units, possible_act_functions, self.layer_limit)
 
     def compute_reward(self, layers, num_epochs, is_train):
         val_acc = None

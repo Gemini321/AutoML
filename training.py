@@ -8,10 +8,12 @@ from torch.autograd import Variable
 import numpy as np
 
 class Trainer(object):
-    def __init__(self, policy, batch_size, total_actions, train_shared_epochs, verbose=False, num_episodes=50):
+    def __init__(self, policy, batch_size, possible_hidden_units, possible_act_functions, train_shared_epochs, verbose=False, num_episodes=50):
         # training settings
         self.batch_size = batch_size
-        self.total_actions = total_actions
+        self.possible_hidden_units = possible_hidden_units
+        self.possible_act_functions = possible_act_functions
+        self.total_actions = possible_hidden_units + possible_act_functions
         self.train_shared_epochs = train_shared_epochs
         self.verbose = verbose
         self.num_episodes = num_episodes
@@ -24,7 +26,7 @@ class Trainer(object):
         self.val_freq = 1
 
         self.policy = policy
-        self.shared = ChildNet(total_actions, policy.layer_limit)
+        self.shared = ChildNet(possible_hidden_units, possible_act_functions, policy.layer_limit)
         self.memory = RelayMemory(policy.layer_limit)
 
     def training(self):
@@ -127,7 +129,8 @@ class Trainer(object):
             for j in range(self.train_shared_batch_size):
                 # policy gradient update 
                 if self.verbose:
-                    print(batch_hid_units[j])
+                    print('units: ', batch_hid_units[j])
+                    print('actions: ', actions[j])
                 # train child network and compute reward
                 r = cn.compute_reward(batch_hid_units[j], self.train_shared_NN_epochs, is_train=True)
                 a_probs = prob[j, :batch_index_eos[j] + 1]

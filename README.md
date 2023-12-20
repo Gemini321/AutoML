@@ -16,7 +16,7 @@ How to run the pipeline:
 ```pip3 install -r requirements.txt```
 
 5) Run the main script, for instance:
-```python3 main.py --num_episodes 5 --batch 5 --possible_hidden_units 1 4```
+```python3 main.py --num_episodes 5 --batch 5```
 
 Note that you can get a help of how to run the main script by:
 ```python3 main.py -h```
