@@ -21,6 +21,7 @@ if __name__ == "__main__":
                         type=int, default=500)
     parser.add_argument('--shared_episodes', help='Number of episodes the shared net is trained (int)', nargs='?', const=1, 
                         type=int, default=100)
+    parser.add_argument('--use_GNN', help='Use GNN as policy net (bool)', nargs='?', const=1, type=bool, default=False)
     args = parser.parse_args()
     
     # parameter settings
@@ -29,7 +30,7 @@ if __name__ == "__main__":
     n_outputs = len(args.possible_hidden_units) + len(args.possible_act_functions) # output dimension of the PolicyNet
     
     # setup policy network
-    policy = Policy(len(args.possible_hidden_units), len(args.possible_act_functions), args.max_layer)
+    policy = Policy(len(args.possible_hidden_units), len(args.possible_act_functions), args.max_layer, args.use_GNN)
     
     # train
     trainer = Trainer(policy, args.batch, args.possible_hidden_units, args.possible_act_functions, args.shared_episodes, args.verbose, args.num_episodes)

@@ -5,6 +5,9 @@ import numpy as np
 import torch.nn.functional as F
 import copy
 from torch.autograd import Variable
+import torch_geometric
+from torch_geometric.data import Data
+from torch_geometric.nn import GATConv
 
 def one_hot(t, num_classes):
     '''One hot encoder of an action/hyperparameter that will be used as input for the next RNN iteration. '''
@@ -40,12 +43,14 @@ class PolicyNet(nn.Module):
         '''Stochasticity of the policy, picks a random action based on the probabilities computed by the last softmax layer. '''
         if training:
             random_array = np.random.rand(batch_size).reshape(batch_size,1)
-            actions = (np.cumsum(output.detach().numpy(), axis=1) > random_array).argmax(axis=1) # sample action(return index of action)
+            # sample action(return index of action)
+            actions = (np.cumsum(output.detach().numpy(), axis=1) > random_array).argmax(axis=1)
         else: #not stochastic
             actions = (output.detach().numpy()).argmax(axis=1)
         
+        # if previous action is 'EOS', current action must be 'EOS'
         for i in range(1, len(actions)):
-            actions[i] = actions[i] if actions[i - 1] != 0 else 0 # if previous action is 'EOS', current action must be 'EOS'
+            actions[i] = actions[i] if actions[i - 1] != 0 else 0
         return actions
                 
     def forward(self, batch_size, training):
@@ -53,7 +58,6 @@ class PolicyNet(nn.Module):
         outputs = []
         prob = []
         actions = np.zeros((batch_size, self.layer_limit))
-        # confused: action is set by torch.zeros() before any operation
         action = not None #initialize action to don't break the while condition
         i = 0
         counter_nb_layers = 0
@@ -91,9 +95,95 @@ class PolicyNet(nn.Module):
             
         # prossibilities of actions of each batch, with size (batch_size, layers)
         prob = torch.stack(prob, 1)
-        outputs = torch.stack(outputs, 1).squeeze(2) # confused: outputs never return?
+        outputs = torch.stack(outputs, 1).squeeze(2)
         
         return prob, actions
+
+    def loss(self, batch_size, action_probabilities, returns, baseline):  
+        ''' Policy loss '''
+        #T is the number of hyperparameters 
+        sum_over_T = torch.sum(torch.log(action_probabilities.view(batch_size, -1)), axis=1)
+        subs_baseline = torch.add(returns,-baseline)
+        return torch.mean(torch.mul(sum_over_T, subs_baseline)) - torch.sum(torch.mul (torch.tensor(0.01) * action_probabilities, torch.log(action_probabilities.view(batch_size, -1))))
+
+class GNNPolicyNet(nn.Module):
+    """Policy network, i.e., RNN controller that generates the different childNet architectures."""
+
+    def __init__(self, possible_hidden_units, possible_activation_functions, layer_limit):
+        super(GNNPolicyNet, self).__init__()
+        
+        # parameters
+        self.layer_limit = layer_limit
+        self.num_head = 4
+        self.dropout_rate = 0.3
+        self.possible_hidden_units = possible_hidden_units
+        self.possible_activation_functions = possible_activation_functions
+        self.num_outputs = possible_hidden_units + possible_activation_functions
+        self.learning_rate = 1e-2
+        
+        # Neural Network
+        self.conv1 = GATConv(in_channels=self.num_outputs, out_channels=self.num_outputs, heads=self.num_head)
+        self.conv2 = GATConv(in_channels=self.num_outputs*self.num_head, out_channels=self.num_outputs, heads=1, concat=False)
+        self.linear = nn.Linear(self.num_outputs, self.num_outputs)
+
+        # training
+        self.optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
+
+    def sample_action(self, output: torch.Tensor, batch_size, training):
+        '''Stochasticity of the policy, picks a random action based on the probabilities computed by the last softmax layer. '''
+        if training:
+            random_array = np.random.rand(output.size(0)).reshape(output.size(0), 1)
+            # sample action(return index of action)
+            actions = (np.cumsum(output.detach().numpy(), axis=1) > random_array).argmax(axis=1)
+        else: #not stochastic
+            actions = (output.detach().numpy()).argmax(axis=1)
+        
+        # if previous action is 'EOS', current action must be 'EOS'
+        for i in range(1, len(actions)):
+            actions[i] = actions[i] if actions[i - 1] != 0 else 0
+        return actions
+                
+    def make_input(self, num_layers, dim_feature):
+        x = torch.zeros(num_layers, dim_feature, dtype=torch.float)
+        # Create a dense upper triangular matrix with all ones
+        dense_matrix = torch.ones(num_layers, num_layers)
+        dense_matrix = torch.triu(dense_matrix, diagonal=0)
+
+        # Convert the dense matrix to COO format
+        edge_index = torch.triu_indices(num_layers, num_layers, offset=0)
+
+        return Data(x=x, edge_index=edge_index)
+
+    def adjust_prob(self, x: torch.Tensor):
+        '''Adjusts the probabilities to ensure each activation function follows a linear layer. '''
+        for i in range(x.size(0)):
+            if i % 2 == 0:
+                x[i, self.possible_hidden_units:] = 0
+            else:
+                x[i, :self.possible_hidden_units] = 0
+        return x
+
+    def forward(self, batch_size, training):
+        ''' Forward pass. Generates different childNet architectures (nb of architectures = batch_size). '''
+        prob = torch.zeros((batch_size, self.layer_limit))
+        actions = np.zeros((batch_size, self.layer_limit))
+
+        for i in range(batch_size):
+            input = self.make_input(self.layer_limit, self.num_outputs)
+            x = self.conv1(input.x, input.edge_index)
+            x = F.relu(x)
+            x = F.dropout(x, p=self.dropout_rate, training=self.training)
+            x = self.conv2(x, input.edge_index)
+            x = self.linear(x)
+            output = F.softmax(x, 1)
+            output = self.adjust_prob(output)
+            output = output / output.sum(dim=1).unsqueeze(dim=1)
+            action = self.sample_action(output, batch_size, training)
+            actions[i, :] = action
+            prob[i, :] = output[np.arange(self.layer_limit), action]
+        
+        return prob, actions
+
 
     def loss(self, batch_size, action_probabilities, returns, baseline):  
         ''' Policy loss '''
@@ -138,7 +228,7 @@ class Critic(nn.Module):
 
 
 class Policy(nn.Module):
-    def __init__(self, possible_hidden_units, possible_activation_functions, layer_limit):
+    def __init__(self, possible_hidden_units, possible_activation_functions, layer_limit, use_GNN):
         super(Policy, self).__init__()
         # policy parameters
         self.possible_hidden_units = possible_hidden_units
@@ -153,7 +243,10 @@ class Policy(nn.Module):
         self.gamma = 0.1
 
         # networks
-        self.actor_online = PolicyNet(possible_hidden_units, possible_activation_functions, layer_limit)
+        if use_GNN:
+            self.actor_online = GNNPolicyNet(possible_hidden_units, possible_activation_functions, layer_limit)
+        else:
+            self.actor_online = PolicyNet(possible_hidden_units, possible_activation_functions, layer_limit)
         self.actor_target = copy.deepcopy(self.actor_online)
         self.critic_online = Critic( self.layer_limit, self.possible_actions)
         self.critic_target = copy.deepcopy(self.critic_online)
